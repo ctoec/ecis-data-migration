@@ -73,6 +73,12 @@ load_organization_to_prod(ORGANIZATION_ID)
 
 Note that the script does not check whether the organization already exists. Running `load_organization_to_prod()` multiple times will result in duplicate organizations.
 
+To add a new user, run:
+
+```r
+load_user_with_org_permission_to_prod(WINGED_KEYS_ID, FIRST_NAME, LAST_NAME, ORGANIZATION_ID)
+```
+
 ## Todos
 
 * The script cannot identify the Title I status of a site and assumes all sites are not Title I.

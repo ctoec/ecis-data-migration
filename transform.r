@@ -889,10 +889,45 @@ reports <- past_reports %>%
   rbind(current_reports) %>%
   mutate(report_id = row_number())
 
+# Temporary fix for lack of multi-site support
+# sites <- sites %>% filter(site_id != 2)
+# enrollments <- enrollments %>%
+#   mutate(site_id = if_else(site_id == 2, as.integer(1), site_id))
+
 # Warnings
 
 WARNINGS.psr_enrollment %>%
   lapply(warning, call. = FALSE)
+
+# Clean up
+
+rm(c4k_fundings)
+rm(c4k_recipients)
+rm(cdc_fundings)
+rm(current_reports)
+rm(ecis_enrolled_students)
+rm(ecis_enrollments)
+rm(ecis_flat)
+rm(ecis_not_enrolled_students)
+rm(ecis_students)
+rm(fix_5650287478)
+rm(nonunique_enrollments)
+rm(past_reports)
+rm(psr_enrollment)
+rm(psr_enrollment_uniqued)
+rm(psr_revenue)
+rm(psr_students)
+rm(psr_students_not_enrolled_in_ecis)
+rm(psr_students_with_later_sasids)
+rm(psr_students_with_sasids)
+rm(psr_students_without_sasids)
+rm(region_e_towns)
+rm(region_nc_towns)
+rm(region_nw_towns)
+rm(region_sc_towns)
+rm(region_sw_towns)
+rm(towns)
+rm(unique_students_missing_sasids)
 
 # LOAD
 
@@ -1135,6 +1170,27 @@ load_organization_to_prod <- function(.organization_id) {
 # hedwig_query("delete from Report")
 # hedwig_query("delete from Organization")
 
-hedwig_query("select * from ReportingPeriod")
+load_user_with_org_permission_to_prod <- function(.winged_keys_id, .first_name, .last_name, .organization_id) {
+  .user_id <- glue("
+      insert into User (WingedKeysId, FirstName, LastName)
+      output Inserted.Id
+      values ('{.winged_keys_id}', '{.first_name}', '{.last_name}')
+    ") %>%
+    hedwig_query()
+  
+  .organization <- organizations %>%
+    filter(organization_id == .organization_id)
+  
+  .organization_id <- glue("
+    select Id from Organization where Name = '{.organization$name}'
+  ") %>%
+    hedwig_query()
+    
+  glue("
+    insert into Permission (Type, UserId, OrganizationId)
+    values ('Organization', {.user_id}, {.organization_id})
+  ") %>%
+    hedwig_query()
+}
 
 

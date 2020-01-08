@@ -117,7 +117,7 @@ for (.file in list.files("PSRs")) {
       method = "lv",
       distance_col = "fuzzy"
     ) %>%
-    group_by(sasid) %>%
+    group_by(sasid, first_name, last_name) %>%
     arrange(fuzzy) %>%
     slice(1) %>%
     ungroup()
@@ -428,6 +428,10 @@ psr_students_with_sasids <- psr_enrollment %>%
 
 psr_students_without_sasids <- psr_enrollment %>%
   filter(is.na(sasid)) %>%
+  group_by(first_name, last_name) %>%
+  arrange(period) %>%
+  slice(n()) %>%
+  ungroup() %>%
   left_join(organizations, by = c("org_name" = "name")) %>%
   select(
     sasid,
@@ -457,7 +461,10 @@ if (nrow(psr_students_with_later_sasids) > 0) {
 
 psr_students <- psr_students_with_sasids %>%
   rbind(psr_students_without_sasids) %>%
-  filter(is.na(termination_date) | termination_date >= reporting_periods$period_start[1])
+  filter(is.na(termination_date) | termination_date >= reporting_periods$period_start[1]) %>%
+  mutate(
+    sasid = if_else(is.na(sasid), as.character(glue("TEMP-{first_name}-{last_name}")), sasid)
+  )
 
 psr_students_not_enrolled_in_ecis <- psr_students %>%
   mutate(exists_in_ecis = sasid %in% ecis_flat$SASID) %>%
@@ -716,15 +723,6 @@ family_determinations <- students %>%
 
 # Enrollment and funding
 
-unique_students_missing_sasids <- psr_enrollment %>%
-  filter(is.na(sasid)) %>%
-  select(sasid, first_name, last_name) %>%
-  unique()
-
-if (nrow(unique_students_missing_sasids) > 1) {
-  stop(glue("There are {nrow(unique_students_missing_sasids)} students missing SASIDs; need to implement a way to uniquely join to children"))
-}
-
 ecis_enrollments <- ecis_flat %>%
   mutate(
     age_group = case_when(
@@ -749,7 +747,12 @@ ecis_enrollments <- ecis_enrollments %>%
   filter(!(SASID %in% c("2387887382", "5650287478", "8877296962"))) %>%
   rbind(fix_non_uniqued_enrollments)
 
-c4k_recipients <- psr_enrollment %>%
+psr_enrollment_with_temp_sasids <- psr_enrollment %>%
+  mutate(
+    sasid = if_else(is.na(sasid), as.character(glue("TEMP-{first_name}-{last_name}")), sasid)
+  )
+
+c4k_recipients <- psr_enrollment_with_temp_sasids %>%
   filter(c4k == "Y") %>%
   group_by(sasid) %>%
   mutate(
@@ -761,7 +764,7 @@ c4k_recipients <- psr_enrollment %>%
   ungroup() %>%
   select(sasid, first_observed_c4k_period, last_observed_c4k_period)
 
-psr_enrollment_uniqued <- psr_enrollment %>%
+psr_enrollment_uniqued <- psr_enrollment_with_temp_sasids %>%
   filter(is.na(termination_date) | termination_date >= reporting_periods$period_start[1]) %>%
   mutate(age_group = if_else(age_group == "Preschool F/T", "PS", age_group)) %>%
   group_by(sasid, age_group, facility_code) %>%
@@ -845,7 +848,7 @@ cdc_fundings <- psr_enrollment_uniqued %>%
       last_observed_psr_period,
       as.integer(NA)
     ),
-    FundingTime = if_else(age_group == "SA", 1, 0)
+    FundingTime = if_else(reimbursement_rate < 90, 1, 0)
   )
 
 c4k_fundings <- psr_enrollment_uniqued %>%
@@ -897,8 +900,11 @@ current_reports <- organizations %>%
     FamilyFeesRevenue = as.numeric(NA)
   )
 
-reports <- past_reports %>%
-  rbind(current_reports) %>%
+# reports <- past_reports %>%
+#   rbind(current_reports) %>%
+#   mutate(report_id = row_number())
+
+reports <- current_reports %>%
   mutate(report_id = row_number())
 
 # Temporary fix for lack of multi-site support
@@ -961,6 +967,7 @@ hedwig_query <- function (query) { return(dbGetQuery(hedwig_con, query)) }
 # hedwig_query("delete from Child")
 # hedwig_query("delete from FamilyDetermination")
 # hedwig_query("delete from Family")
+# hedwig_query("delete from FundingSpace")
 # hedwig_query("delete from Report")
 # hedwig_query("delete from Organization")
 # hedwig_query("delete from ReportingPeriod")
@@ -1023,14 +1030,16 @@ load_organization_to_prod <- function(.organization_id) {
     ) %>%
     select(name, title_i, region, organization_id.REMOTE) %>%
     mutate_all(function(x) dbQuoteLiteral(hedwig_con, x)) %>%
-    apply(1, function(x) glue("({paste0(x, collapse = ',')})")) %>%
-    paste0(collapse = ",") %>%
-    (function(x) glue("
-      insert into Site (Name, TitleI, Region, OrganizationId)
-      output Inserted.Id
-      values {x}
-    ")) %>%
-    hedwig_query() %>%
+    apply(1, function(x) {
+      glue("({paste0(x, collapse = ',')})") %>%
+        (function(x) glue("
+          insert into Site (Name, TitleI, Region, OrganizationId)
+          output Inserted.Id
+          values {x}
+        ")) %>%
+        hedwig_query()
+    }) %>%
+    bind_rows() %>%
     select(site_id.REMOTE = Id) %>%
     cbind(.sites)
   
@@ -1041,14 +1050,16 @@ load_organization_to_prod <- function(.organization_id) {
   .families <- .families %>%
     select(AddressLine1, AddressLine2, Town, State, Zip, Homelessness, organization_id.REMOTE) %>%
     mutate_all(function(x) dbQuoteLiteral(hedwig_con, x)) %>%
-    apply(1, function(x) glue("({paste0(x, collapse = ',')})")) %>%
-    paste0(collapse = ",") %>%
-    (function(x) glue("
-      insert into Family (AddressLine1, AddressLine2, Town, State, Zip, Homelessness, OrganizationId)
-      output Inserted.Id
-      values {x}
-    ")) %>%
-    hedwig_query() %>%
+    apply(1, function(x) {
+      glue("({paste0(x, collapse = ',')})") %>%
+        (function(x) glue("
+          insert into Family (AddressLine1, AddressLine2, Town, State, Zip, Homelessness, OrganizationId)
+          output Inserted.Id
+          values {x}
+        ")) %>%
+        hedwig_query()
+    }) %>%
+    bind_rows() %>%
     select(family_id.REMOTE = Id) %>%
     cbind(.families)
   
@@ -1061,14 +1072,16 @@ load_organization_to_prod <- function(.organization_id) {
     ) %>%
     select(NotDisclosed, NumberOfPeople, Income, DeterminationDate, family_id.REMOTE) %>%
     mutate_all(function(x) dbQuoteLiteral(hedwig_con, x)) %>%
-    apply(1, function(x) glue("({paste0(x, collapse = ',')})")) %>%
-    paste0(collapse = ",") %>%
-    (function(x) glue("
-      insert into FamilyDetermination (NotDisclosed, NumberOfPeople, Income, DeterminationDate, FamilyId)
-      output Inserted.Id
-      values {x}
-    ")) %>%
-    hedwig_query() %>%
+    apply(1, function(x) {
+      glue("({paste0(x, collapse = ',')})") %>%
+        (function(x) glue("
+          insert into FamilyDetermination (NotDisclosed, NumberOfPeople, Income, DeterminationDate, FamilyId)
+          output Inserted.Id
+          values {x}
+        ")) %>%
+        hedwig_query()
+    }) %>%
+    bind_rows() %>%
     select(determination_id.REMOTE = Id) %>%
     cbind(.determinations)
   
@@ -1078,6 +1091,7 @@ load_organization_to_prod <- function(.organization_id) {
   
   .children <- .children %>%
     mutate(
+      Sasid = if_else(grepl("TEMP", Sasid), as.character(NA), Sasid),
       Birthdate = format(Birthdate, format = "%Y-%m-%d")
     ) %>%
     select(
@@ -1089,20 +1103,22 @@ load_organization_to_prod <- function(.organization_id) {
     ) %>%
     mutate_all(function(x) dbQuoteLiteral(hedwig_con, x)) %>%
     mutate(Guid = "NEWID()") %>%
-    apply(1, function(x) glue("({paste0(x, collapse = ',')})")) %>%
-    paste0(collapse = ",") %>%
-    (function(x) glue("
-      insert into Child (
-        Sasid, FirstName, MiddleName, LastName, Suffix,
-        Birthdate, BirthTown, BirthState, BirthCertificateId,
-        AmericanIndianOrAlaskaNative, Asian, BlackOrAfricanAmerican,
-        NativeHawaiianOrPacificIslander, White, HispanicOrLatinxEthnicity,
-        Gender, Foster, FamilyId, OrganizationId, Id
-      )
-      output Inserted.Id
-      values {x}
-    ")) %>%
-    hedwig_query() %>%
+    apply(1, function(x) {
+      glue("({paste0(x, collapse = ',')})") %>%
+        (function(x) glue("
+          insert into Child (
+            Sasid, FirstName, MiddleName, LastName, Suffix,
+            Birthdate, BirthTown, BirthState, BirthCertificateId,
+            AmericanIndianOrAlaskaNative, Asian, BlackOrAfricanAmerican,
+            NativeHawaiianOrPacificIslander, White, HispanicOrLatinxEthnicity,
+            Gender, Foster, FamilyId, OrganizationId, Id
+          )
+          output Inserted.Id
+          values {x}
+        ")) %>%
+        hedwig_query()
+    }) %>%
+    bind_rows() %>%
     select(child_id.REMOTE = Id) %>%
     cbind(.children)
   
@@ -1117,14 +1133,16 @@ load_organization_to_prod <- function(.organization_id) {
     ) %>%
     select(AgeGroup, Entry, Exit, ExitReason, child_id.REMOTE, site_id.REMOTE) %>%
     mutate_all(function(x) dbQuoteLiteral(hedwig_con, x)) %>%
-    apply(1, function(x) glue("({paste0(x, collapse = ',')})")) %>%
-    paste0(collapse = ",") %>%
-    (function(x) glue("
-      insert into Enrollment (AgeGroup, Entry, [Exit], ExitReason, ChildId, SiteId)
-      output Inserted.Id
-      values {x}
-    ")) %>%
-    hedwig_query() %>%
+    apply(1, function(x) {
+      glue("({paste0(x, collapse = ',')})") %>%
+        (function(x) glue("
+          insert into Enrollment (AgeGroup, Entry, [Exit], ExitReason, ChildId, SiteId)
+          output Inserted.Id
+          values {x}
+        ")) %>%
+        hedwig_query()
+    }) %>%
+    bind_rows() %>%
     select(enrollment_id.REMOTE = Id) %>%
     cbind(.enrollments)
   
@@ -1144,17 +1162,19 @@ load_organization_to_prod <- function(.organization_id) {
       FundingTime, enrollment_id.REMOTE
     ) %>%
     mutate_all(function(x) dbQuoteLiteral(hedwig_con, x)) %>%
-    apply(1, function(x) glue("({paste0(x, collapse = ',')})")) %>%
-    paste0(collapse = ",") %>%
-    (function(x) glue("
-      insert into Funding (
-        Source, FamilyId, CertificateStartDate, CertificateEndDate,
-        FirstReportingPeriodId, LastReportingPeriodId, Time, EnrollmentId
-      )
-      output Inserted.Id
-      values {x}
-    ")) %>%
-    hedwig_query() %>%
+    apply(1, function(x) {
+      glue("({paste0(x, collapse = ',')})") %>%
+        (function(x) glue("
+          insert into Funding (
+            Source, FamilyId, CertificateStartDate, CertificateEndDate,
+            FirstReportingPeriodId, LastReportingPeriodId, Time, EnrollmentId
+          )
+          output Inserted.Id
+          values {x}
+        ")) %>%
+        hedwig_query()
+    }) %>%
+    bind_rows() %>%
     select(funding_id.REMOTE = Id) %>%
     cbind(.fundings)
   
@@ -1171,17 +1191,19 @@ load_organization_to_prod <- function(.organization_id) {
       Accredited, C4KRevenue, RetroactiveC4KRevenue, FamilyFeesRevenue
     ) %>%
     mutate_all(function(x) dbQuoteLiteral(hedwig_con, x)) %>%
-    apply(1, function(x) glue("({paste0(x, collapse = ',')})")) %>%
-    paste0(collapse = ",") %>%
-    (function(x) glue("
-      insert into Report (
-        Type, ReportingPeriodId, SubmittedAt, OrganizationId,
-        Accredited, C4KRevenue, RetroactiveC4KRevenue, FamilyFeesRevenue
-      )
-      output Inserted.Id
-      values {x}
-    ")) %>%
-    hedwig_query() %>%
+    apply(1, function(x) {
+      glue("({paste0(x, collapse = ',')})") %>%
+        (function(x) glue("
+          insert into Report (
+            Type, ReportingPeriodId, SubmittedAt, OrganizationId,
+            Accredited, C4KRevenue, RetroactiveC4KRevenue, FamilyFeesRevenue
+          )
+          output Inserted.Id
+          values {x}
+        ")) %>%
+        hedwig_query()
+    }) %>%
+    bind_rows() %>%
     select(report_id.REMOTE = Id) %>%
     cbind(.reports)
 }

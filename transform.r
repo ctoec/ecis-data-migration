@@ -844,7 +844,7 @@ cdc_fundings <- psr_enrollment_uniqued %>%
     CertificateEndDate = as_date(NA),
     FirstReportingPeriodId = first_observed_psr_period,
     LastReportingPeriodId = if_else (
-      last_observed_psr_period < max(psr_enrollment$period) | !is.na(termination_date) | !is.na(termination_date),
+      last_observed_psr_period < max(psr_enrollment$period) | !is.na(termination_date) | !is.na(FacilityExitDate),
       last_observed_psr_period,
       as.integer(NA)
     ),

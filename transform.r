@@ -163,7 +163,7 @@ sites <- programs %>%
   inner_join(organizations, by = c("org_name" = "name")) %>%
   left_join(towns, by = "town") %>%
   select(name, organization_id, license_no, naeyc_id, registry_id, facility_code, region) %>%
-  mutate(site_id = row_number(), title_i = FALSE)
+  mutate(site_id = row_number(), title_i = name %in% c("Richard Battles Day Care"))
 
 ## TODO: Find Title I status for sites
 
@@ -836,7 +836,7 @@ enrollments <- psr_enrollment_uniqued %>%
 # TODO: Add additional ExitCategories
 
 cdc_fundings <- psr_enrollment_uniqued %>%
-  transmute(
+  mutate(
     enrollment_id,
     FundingSource = 0,
     FamilyId = as.numeric(NA),
@@ -844,11 +844,11 @@ cdc_fundings <- psr_enrollment_uniqued %>%
     CertificateEndDate = as_date(NA),
     FirstReportingPeriodId = first_observed_psr_period,
     LastReportingPeriodId = if_else (
-      last_observed_psr_period < max(psr_enrollment$period),
+      last_observed_psr_period < max(psr_enrollment$period) | !is.na(termination_date) | !is.na(termination_date),
       last_observed_psr_period,
       as.integer(NA)
     ),
-    FundingTime = if_else(reimbursement_rate < 90, 1, 0)
+    FundingTime = if_else(site_id %in% c(1, 2), 0, if_else(age_group == "SA", 1, 0))
   )
 
 c4k_fundings <- psr_enrollment_uniqued %>%
@@ -858,7 +858,7 @@ c4k_fundings <- psr_enrollment_uniqued %>%
     enrollment_id,
     FundingSource = 1,
     FamilyId = as.integer(gsub("[^0-9]", "", c4k_case_no)),
-    CertificateStartDate = period_start,
+    CertificateStartDate = as_date(NA),
     CertificateEndDate = if_else(
       last_observed_c4k_period < max(psr_enrollment$period),
       period_end,
@@ -1246,3 +1246,74 @@ load_cdc_funding_space_to_prod <- function(.organization_id, .time, .age, .capac
   ") %>%
     hedwig_query()
 }
+
+# # MISSING INFORMATION TABLES
+# 
+# # Race/ethnicity
+# children %>%
+#   left_join(organizations, by = "organization_id") %>%
+#   transmute(organization = name, missing = is.na(HispanicOrLatinxEthnicity)) %>%
+#   count(organization, missing) %>%
+#   pivot_wider(names_from = missing, values_from = n) %>%
+#   transmute(organization, missing = `TRUE`, total = (`FALSE` + `TRUE`), missing_pct = percent(missing / total)) %>%
+#   kable()
+# 
+# # Gender
+# children %>%
+#   left_join(organizations, by = "organization_id") %>%
+#   transmute(organization = name, missing = Gender == 4) %>%
+#   count(organization, missing) %>%
+#   pivot_wider(names_from = missing, values_from = n) %>%
+#   transmute(organization, missing = `TRUE`, total = (`FALSE` + `TRUE`), missing_pct = percent(missing / total)) %>%
+#   kable()
+# 
+# # Birth certificate ID
+# children %>%
+#   left_join(organizations, by = "organization_id") %>%
+#   transmute(organization = name, missing = is.na(BirthCertificateId)) %>%
+#   count(organization, missing) %>%
+#   pivot_wider(names_from = missing, values_from = n) %>%
+#   transmute(organization, missing = `TRUE`, total = (`FALSE` + `TRUE`), missing_pct = percent(missing / total)) %>%
+#   kable()
+# 
+# # Date of birth
+# children %>%
+#   left_join(organizations, by = "organization_id") %>%
+#   transmute(organization = name, missing = is.na(Birthdate)) %>%
+#   count(organization, missing) %>%
+#   pivot_wider(names_from = missing, values_from = n) %>%
+#   transmute(organization, missing = `TRUE`, total = (`FALSE` + `TRUE`), missing_pct = percent(missing / total)) %>%
+#   kable()
+# 
+# # Address
+# children %>%
+#   left_join(organizations, by = "organization_id") %>%
+#   left_join(families, by = "family_id") %>%
+#   transmute(organization = name, missing = is.na(AddressLine1)) %>%
+#   count(organization, missing) %>%
+#   pivot_wider(names_from = missing, values_from = n) %>%
+#   transmute(organization, missing = `TRUE`, total = (`FALSE` + `TRUE`), missing_pct = percent(missing / total)) %>%
+#   kable()
+# 
+# # Income determination date
+# children %>%
+#   left_join(organizations, by = "organization_id") %>%
+#   left_join(families, by = "family_id") %>%
+#   left_join(family_determinations, by = "family_id") %>%
+#   transmute(organization = name, missing = is.na(DeterminationDate)) %>%
+#   count(organization, missing) %>%
+#   pivot_wider(names_from = missing, values_from = n) %>%
+#   transmute(organization, missing = `TRUE`, total = (`FALSE` + `TRUE`), missing_pct = percent(missing / total)) %>%
+#   kable()
+# 
+# # Care 4 Kids Family Ids
+# fundings %>%
+#   filter(FundingSource == 1) %>%
+#   left_join(enrollments, by = "enrollment_id") %>%
+#   left_join(sites, by = "site_id") %>%
+#   left_join(organizations, by = "organization_id") %>%
+#   transmute(organization = name.y, missing = is.na(FamilyId)) %>%
+#   count(organization, missing) %>%
+#   pivot_wider(names_from = missing, values_from = n) %>%
+#   transmute(organization, missing = `TRUE`, total = (`FALSE` + `TRUE`), missing_pct = percent(missing / total)) %>%
+#   kable()

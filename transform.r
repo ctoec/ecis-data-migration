@@ -1,4 +1,5 @@
 library(odbc)
+library(DBI)
 library(tidyverse)
 library(lubridate)
 library(readxl)
@@ -59,7 +60,7 @@ programs <- read_xls(
 
 # Reporting periods
 
-reporting_periods <- data.frame(period = seq(ymd('2019-09-01'), ymd('2029-07-01'), by = 'months')) %>%
+reporting_periods <- data.frame(period = seq(ymd('2019-07-01'), ymd('2029-07-01'), by = 'months')) %>%
   mutate(
     id = row_number(),
     funding_source = "CDC",
@@ -629,6 +630,12 @@ students <- psr_students %>%
   left_join(ecis_students, by=c("sasid"="SASID")) %>%
   mutate(student_id = row_number())
 
+additional_sasid_data <- read_csv("sasid-fill.csv", col_types = cols(
+  SASID = col_character(),
+  Birthdate = col_date(format = "%m/%d/%Y")
+)) %>%
+  unique()
+
 # Children
 
 children <- students %>%
@@ -672,7 +679,10 @@ children <- students %>%
     NativeHawaiianOrPacificIslander = FALSE,
     White = FALSE,
     Foster = FALSE
-  ))
+  )) %>%
+  left_join(additional_sasid_data, by = c("Sasid" = "SASID")) %>%
+  mutate(Birthdate = if_else(!is.na(Birthdate.x), Birthdate.x, Birthdate.y)) %>%
+  select(-Birthdate.x, -Birthdate.y)
 
 families <- students %>%
   transmute(
@@ -724,8 +734,8 @@ ecis_enrollments <- ecis_flat %>%
     )
   )
 
-fix_5650287478 <- ecis_enrollments %>%
-  filter(SASID == "5650287478") %>%
+fix_non_uniqued_enrollments <- ecis_enrollments %>%
+  filter(SASID %in% c("2387887382", "5650287478", "8877296962")) %>%
   group_by(SASID) %>%
   mutate(
     EnrollmentDate = min(EnrollmentDate),
@@ -736,8 +746,8 @@ fix_5650287478 <- ecis_enrollments %>%
   ungroup()
 
 ecis_enrollments <- ecis_enrollments %>%
-  filter(SASID != "5650287478") %>%
-  rbind(fix_5650287478)
+  filter(!(SASID %in% c("2387887382", "5650287478", "8877296962"))) %>%
+  rbind(fix_non_uniqued_enrollments)
 
 c4k_recipients <- psr_enrollment %>%
   filter(c4k == "Y") %>%
@@ -812,8 +822,10 @@ enrollments <- psr_enrollment_uniqued %>%
     ExitReason = case_when(
       ExitCategory == "Moved to Another Town" ~ "Moved within Connecticut",
       ExitCategory == "Other" ~ "Other",
+      ExitCategory == "Parent Withdrew Child" ~ "Other",
       ExitCategory == "Aged Out" ~ "Aged out",
       ExitCategory == "Child Stopped Attending" ~ "Stopped attending",
+      ExitCategory == "Chose to Attend A Different Program" ~ "Chose to attend a different program",
       !is.na(Exit) ~ "Unknown"
     )
   )
@@ -829,7 +841,7 @@ cdc_fundings <- psr_enrollment_uniqued %>%
     CertificateEndDate = as_date(NA),
     FirstReportingPeriodId = first_observed_psr_period,
     LastReportingPeriodId = if_else (
-      last_observed_psr_period < 3,
+      last_observed_psr_period < max(psr_enrollment$period),
       last_observed_psr_period,
       as.integer(NA)
     ),
@@ -845,7 +857,7 @@ c4k_fundings <- psr_enrollment_uniqued %>%
     FamilyId = as.integer(gsub("[^0-9]", "", c4k_case_no)),
     CertificateStartDate = period_start,
     CertificateEndDate = if_else(
-      last_observed_c4k_period < 3,
+      last_observed_c4k_period < max(psr_enrollment$period),
       period_end,
       as_date(NA)
     ),
@@ -876,7 +888,7 @@ past_reports <- psr_revenue %>%
 current_reports <- organizations %>%
   transmute(
     FundingSource = 0,
-    ReportingPeriodId = 4,
+    ReportingPeriodId = max(psr_enrollment$period) + 1,
     SubmittedAt = as.POSIXct(NA),
     organization_id,
     Accredited = TRUE,
@@ -890,9 +902,9 @@ reports <- past_reports %>%
   mutate(report_id = row_number())
 
 # Temporary fix for lack of multi-site support
-# sites <- sites %>% filter(site_id != 2)
-# enrollments <- enrollments %>%
-#   mutate(site_id = if_else(site_id == 2, as.integer(1), site_id))
+sites <- sites %>% filter(site_id != 2)
+enrollments <- enrollments %>%
+  mutate(site_id = if_else(site_id == 2, as.integer(1), site_id))
 
 # Warnings
 
@@ -910,7 +922,7 @@ rm(ecis_enrollments)
 rm(ecis_flat)
 rm(ecis_not_enrolled_students)
 rm(ecis_students)
-rm(fix_5650287478)
+rm(fix_non_uniqued_enrollments)
 rm(nonunique_enrollments)
 rm(past_reports)
 rm(psr_enrollment)
@@ -926,6 +938,7 @@ rm(region_nc_towns)
 rm(region_nw_towns)
 rm(region_sc_towns)
 rm(region_sw_towns)
+rm(students)
 rm(towns)
 rm(unique_students_missing_sasids)
 
@@ -939,6 +952,18 @@ hedwig_con <- dbConnect(odbc(),
                         PWD      = Sys.getenv("HEDWIG_PROD_DB_PASS"))
 
 hedwig_query <- function (query) { return(dbGetQuery(hedwig_con, query)) }
+
+# hedwig_query("delete from Permission")
+# hedwig_query("delete from [User]")
+# hedwig_query("delete from Funding")
+# hedwig_query("delete from Enrollment")
+# hedwig_query("delete from Site")
+# hedwig_query("delete from Child")
+# hedwig_query("delete from FamilyDetermination")
+# hedwig_query("delete from Family")
+# hedwig_query("delete from Report")
+# hedwig_query("delete from Organization")
+# hedwig_query("delete from ReportingPeriod")
 
 # reporting_period_query_values <- reporting_periods %>%
 #   mutate(
@@ -1161,18 +1186,9 @@ load_organization_to_prod <- function(.organization_id) {
     cbind(.reports)
 }
 
-# hedwig_query("delete from Funding")
-# hedwig_query("delete from Enrollment")
-# hedwig_query("delete from Site")
-# hedwig_query("delete from Child")
-# hedwig_query("delete from FamilyDetermination")
-# hedwig_query("delete from Family")
-# hedwig_query("delete from Report")
-# hedwig_query("delete from Organization")
-
 load_user_with_org_permission_to_prod <- function(.winged_keys_id, .first_name, .last_name, .organization_id) {
   .user_id <- glue("
-      insert into User (WingedKeysId, FirstName, LastName)
+      insert into [User] (WingedKeysId, FirstName, LastName)
       output Inserted.Id
       values ('{.winged_keys_id}', '{.first_name}', '{.last_name}')
     ") %>%
@@ -1188,9 +1204,23 @@ load_user_with_org_permission_to_prod <- function(.winged_keys_id, .first_name, 
     
   glue("
     insert into Permission (Type, UserId, OrganizationId)
-    values ('Organization', {.user_id}, {.organization_id})
+    values ('Organization', {.user_id$Id}, {.organization_id$Id})
   ") %>%
     hedwig_query()
 }
 
+load_cdc_funding_space_to_prod <- function(.organization_id, .time, .age, .capacity) {
+  .organization <- organizations %>%
+    filter(organization_id == .organization_id)
+  
+  .organization_id <- glue("
+    select Id from Organization where Name = '{.organization$name}'
+  ") %>%
+    hedwig_query()
 
+  glue("
+    insert into FundingSpace (OrganizationId, Capacity, Source, Time, AgeGroup)
+    values ({.organization_id$Id}, {.capacity}, 0, {.time}, {.age})
+  ") %>%
+    hedwig_query()
+}

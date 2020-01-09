@@ -784,7 +784,19 @@ psr_enrollment_uniqued <- psr_enrollment_with_temp_sasids %>%
   # Does not support reenrollments, or students who are no longer enrolled and will error for these cases
   filter(n() == 1 | sum(is.na(FacilityExitDate)) != 1 | is.na(FacilityExitDate)) %>%
   ungroup() %>%
-  mutate(enrollment_id = row_number())
+  mutate(enrollment_id = row_number()) %>%
+  group_by(sasid) %>%
+  inner_join(select(reporting_periods, id, start_of_first_observed_psr = period_start), by = c("first_observed_psr_period" = "id")) %>%
+  inner_join(select(reporting_periods, id, end_of_last_observed_psr = period_end), by = c("last_observed_psr_period" = "id")) %>%
+  mutate(
+    # Only supports a single move in the available PSRs
+    moved_btw_age_groups = length(unique(age_group)) > 1,
+    moved_to_age_group = age_group == max(age_group),
+    enrollment_date = if_else(moved_btw_age_groups & moved_to_age_group, start_of_first_observed_psr, as_date(enrollment_date)),
+    termination_date = if_else(moved_btw_age_groups & !moved_to_age_group, end_of_last_observed_psr, as_date(termination_date)),
+    ExitCategory = if_else(moved_btw_age_groups & !moved_to_age_group, "Aged Out", ExitCategory)
+  ) %>%
+  ungroup()
   
 nonunique_enrollments <- psr_enrollment_uniqued %>%
   group_by(sasid, age_group) %>%
@@ -852,7 +864,6 @@ cdc_fundings <- psr_enrollment_uniqued %>%
   )
 
 c4k_fundings <- psr_enrollment_uniqued %>%
-  inner_join(select(reporting_periods, id, period_start), by = c("first_observed_c4k_period" = "id")) %>%
   inner_join(select(reporting_periods, id, period_end), by = c("last_observed_c4k_period" = "id")) %>%
   transmute(
     enrollment_id,
@@ -1317,3 +1328,5 @@ load_cdc_funding_space_to_prod <- function(.organization_id, .time, .age, .capac
 #   pivot_wider(names_from = missing, values_from = n) %>%
 #   transmute(organization, missing = `TRUE`, total = (`FALSE` + `TRUE`), missing_pct = percent(missing / total)) %>%
 #   kable()
+
+

@@ -848,7 +848,7 @@ enrollments <- psr_enrollment_uniqued %>%
 # TODO: Add additional ExitCategories
 
 cdc_fundings <- psr_enrollment_uniqued %>%
-  mutate(
+  transmute(
     enrollment_id,
     FundingSource = 0,
     FamilyId = as.numeric(NA),

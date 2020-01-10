@@ -970,14 +970,14 @@ hedwig_con <- dbConnect(odbc(),
 
 hedwig_query <- function (query) { return(dbGetQuery(hedwig_con, query)) }
 
-# hedwig_query("delete from Permission")
-# hedwig_query("delete from [User]")
 # hedwig_query("delete from Funding")
 # hedwig_query("delete from Enrollment")
 # hedwig_query("delete from Site")
 # hedwig_query("delete from Child")
 # hedwig_query("delete from FamilyDetermination")
 # hedwig_query("delete from Family")
+# hedwig_query("delete from Permission")
+# hedwig_query("delete from [User]")
 # hedwig_query("delete from FundingSpace")
 # hedwig_query("delete from Report")
 # hedwig_query("delete from Organization")

@@ -1,8 +1,6 @@
 #!/bin/bash
 
-lsof -i:1402 > /dev/null
-
-if [[ $? -eq 0 ]]; then
+if [[ $(lsof -i:1402 | grep ssh) ]]; then
 	echo "Port 1402 is already in use."
 	exit 1
 fi

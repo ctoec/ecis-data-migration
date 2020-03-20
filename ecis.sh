@@ -74,7 +74,7 @@ echo -n "Creating 'ecis' container: "
 docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=${DB_PASS}1" \
 	--name "ecis" -p 1401:1433 \
 	-v ecisdata:/var/opt/mssql \
-	-d mcr.microsoft.com/mssql/server:2019-CTP3.2-ubuntu
+	-d mcr.microsoft.com/mssql/server:latest
 
 # Replace password to make SQL Server happy
 docker exec ecis /opt/mssql-tools/bin/sqlcmd \
@@ -108,8 +108,8 @@ SQL
 run_sql <<- SQL
 	RESTORE DATABASE ${DB_NAME}
 		FROM DISK = '/var/opt/mssql/backup/ECIS_Backup.bak' WITH
-			MOVE '${DB_NAME}' TO '/var/opt/mssql/data/${DB_NAME}.mdf',
-			MOVE '${DB_NAME}_log' TO '/var/opt/mssql/data/${DB_NAME}_log.ldf'
+			MOVE '${DB_NAME}2' TO '/var/opt/mssql/data/${DB_NAME}.mdf',
+			MOVE '${DB_NAME}2_log' TO '/var/opt/mssql/data/${DB_NAME}_log.ldf'
 SQL
 
 echo "${DB_NAME} database successfully restored."

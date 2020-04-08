@@ -1,19 +1,26 @@
-library(RODBC)
 library(tidyverse)
 library(openxlsx)
 library(lubridate)
 library(glue)
+library(DBI)
 
-driver <- "ODBC Driver 17 for SQL Server"
-server <- "127.0.0.1,1402"
+driver <- "{ODBC Driver 17 for SQL Server}"
+server <- "127.0.0.1,1434"
 database <- "hedwig"
 uid <- "admin"
 pwd <- Sys.getenv("HEDWIG_PROD_DB_PASS")
-hedwig_con <- odbcDriverConnect(glue(
-  "driver={driver};server={server};database={database};uid={uid};pwd={pwd}"
-))
-
-hedwig_query <- function (query) { return(sqlQuery(hedwig_con, query, stringsAsFactors = FALSE)) }
+hedwig_con <- dbConnect(odbc::odbc(), 
+                 Driver = 'ODBC Driver 17 for SQL Server',
+                 Server = server,
+                 Database = database,
+                 UID = uid, 
+                 Pwd = pwd,
+                 timeout = 5)
+hedwig_query <- function (query) {  res <- dbSendQuery(hedwig_con, query, stringsAsFactors = FALSE)
+                                    db_res <- dbFetch(res)
+                                    dbClearResult(res)
+                                    return(db_res)
+                                    }
 
 rates <- read_csv("temporary-psr-generation/rates.csv", col_types = cols(
   Accredited = col_integer(),
@@ -49,7 +56,6 @@ generate_psr_for_report_id <- function(.id) {
   .cdc_fundings <- hedwig_query(glue("
     select
       Child.Id,
-      Sasid,
       LastName,
       FirstName,
       AgeGroup,
@@ -61,7 +67,8 @@ generate_psr_for_report_id <- function(.id) {
       [Exit],
       NumberOfPeople,
       Income,
-      Foster
+      Foster,
+      Sasid
     from Funding
     inner join Enrollment on Enrollment.Id = EnrollmentId
     inner join Site on Site.Id = SiteId

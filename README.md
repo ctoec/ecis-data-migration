@@ -22,6 +22,7 @@ R --slave -e "install.packages(c('tidyverse', 'odbc', 'fuzzyjoin'))"
 
 ### ECIS
 
+1. Download ECIS data from S3 bucket (link in [Retention Policy](https://docs.google.com/document/d/1fBBjWPdC9w8YUlCT47s9-G9jzy0vOQ9ejONviXkkCxI/edit#)), this data will be available until September 2020 per the Policy.
 1. Copy the ECIS backup files to the `ECIS/` directory.
 1. `cp .Renviron.example .Renviron`
 1. Update `.Renviron` with the variables defined in `ecis.sh`

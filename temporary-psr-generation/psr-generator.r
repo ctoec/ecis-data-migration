@@ -58,8 +58,8 @@ generate_psr_for_report_id <- function(.id) {
       Child.Id,
       LastName,
       FirstName,
-      AgeGroup,
-      Time,
+      Enrollment.AgeGroup,
+      FTA.Time,
       LicenseNumber,
       Region,
       TitleI,
@@ -69,7 +69,9 @@ generate_psr_for_report_id <- function(.id) {
       Income,
       Foster,
       Sasid
-    from Funding
+    from Funding F
+    INNER JOIN FundingSpace FS on F.FundingSpaceId = FS.Id
+    inner join FundingTimeAllocation FTA on FS.Id = FTA.FundingSpaceId
     inner join Enrollment on Enrollment.Id = EnrollmentId
     inner join Site on Site.Id = SiteId
     inner join Child on Child.Id = ChildId
@@ -95,7 +97,7 @@ generate_psr_for_report_id <- function(.id) {
     ) as MostRecentFamilyDetermination
       on MostRecentFamilyDetermination.FamilyId = Child.FamilyId
     where Site.OrganizationId = {.report$OrganizationId}
-      and Source = {.report$Type}
+      and F.Source = {.report$Type}
       and FirstReportingPeriodId <= {.report$ReportingPeriodId}
       and (LastReportingPeriodId is null or LastReportingPeriodId >= {.report$ReportingPeriodId})
   ")) %>%
@@ -125,23 +127,26 @@ generate_psr_for_report_id <- function(.id) {
   .c4k_fundings <- hedwig_query(glue("
     select
       Child.Id,
-      Funding.FamilyId
-    from Funding
-    inner join Enrollment on Enrollment.Id = EnrollmentId
-    inner join Site on Site.Id = SiteId
-    inner join Child on Child.Id = ChildId
-    where Site.OrganizationId = {.report$OrganizationId}
-      and Source = 1 -- C4K
-      and CertificateStartDate <= '{.report$PeriodEnd}'
-      and (CertificateEndDate is null or CertificateEndDate >= '{.report$PeriodStart}')
+     F.Id as FamilyId
+     from Funding
+     inner join Enrollment on Enrollment.Id = EnrollmentId
+     inner join Site on Site.Id = SiteId
+     inner join Child on Child.Id = ChildId
+     inner join Family F on Child.FamilyId = F.Id
+     INNER JOIN C4KCertificate C4KC on Enrollment.ChildId = C4KC.ChildId
+     where Site.OrganizationId = {.report$OrganizationId}
+     and Source = 1 -- C4K
+     and C4KC.StartDate <= '{.report$PeriodEnd}'
+     and (C4KC.EndDate is null or C4KC.EndDate >= '{.report$PeriodStart}')
   "))
   
   .funding_spaces <- hedwig_query(glue("
     select
       AgeGroup,
-      Time,
+      FTA.Time,
       Capacity
-    from FundingSpace
+    from FundingSpace FS
+    inner join FundingTimeAllocation FTA on FS.Id = FTA.FundingSpaceId
     where OrganizationId = {.report$OrganizationId}
       and Source = {.report$Type}
   ")) %>%

@@ -59,7 +59,7 @@ generate_psr_for_report_id <- function(.id) {
       LastName,
       FirstName,
       Enrollment.AgeGroup,
-      FTA.Time,
+      FS.Time,
       LicenseNumber,
       Region,
       TitleI,
@@ -71,7 +71,6 @@ generate_psr_for_report_id <- function(.id) {
       Sasid
     from Funding F
     INNER JOIN FundingSpace FS on F.FundingSpaceId = FS.Id
-    inner join FundingTimeAllocation FTA on FS.Id = FTA.FundingSpaceId
     inner join Enrollment on Enrollment.Id = EnrollmentId
     inner join Site on Site.Id = SiteId
     inner join Child on Child.Id = ChildId
@@ -141,10 +140,9 @@ generate_psr_for_report_id <- function(.id) {
   .funding_spaces <- hedwig_query(glue("
     select
       AgeGroup,
-      FTA.Time,
+      Time,
       Capacity
     from FundingSpace FS
-    inner join FundingTimeAllocation FTA on FS.Id = FTA.FundingSpaceId
     where OrganizationId = {.report$OrganizationId}
       and Source = {.report$Type}
   ")) %>%

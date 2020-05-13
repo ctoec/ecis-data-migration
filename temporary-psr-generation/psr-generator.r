@@ -97,7 +97,7 @@ generate_psr_for_report_id <- function(.id) {
     ) as MostRecentFamilyDetermination
       on MostRecentFamilyDetermination.FamilyId = Child.FamilyId
     where Site.OrganizationId = {.report$OrganizationId}
-      and F.Source = {.report$Type}
+      and F.Source IN (0,1)
       and FirstReportingPeriodId <= {.report$ReportingPeriodId}
       and (LastReportingPeriodId is null or LastReportingPeriodId >= {.report$ReportingPeriodId})
   ")) %>%

@@ -126,16 +126,14 @@ generate_psr_for_report_id <- function(.id) {
   
   .c4k_fundings <- hedwig_query(glue("
     select
-      Child.Id,
-     F.Id as FamilyId
+     Child.Id,
+     Child.C4KFamilyCaseNumber as FamilyId
      from Funding
      inner join Enrollment on Enrollment.Id = EnrollmentId
      inner join Site on Site.Id = SiteId
      inner join Child on Child.Id = ChildId
-     inner join Family F on Child.FamilyId = F.Id
      INNER JOIN C4KCertificate C4KC on Enrollment.ChildId = C4KC.ChildId
-     where Site.OrganizationId = {.report$OrganizationId}
-     and Source = 1 -- C4K
+     where Site.OrganizationId = {.report$OrganizationId} -- C4K is always a secondary source 
      and C4KC.StartDate <= '{.report$PeriodEnd}'
      and (C4KC.EndDate is null or C4KC.EndDate >= '{.report$PeriodStart}')
   "))

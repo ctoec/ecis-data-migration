@@ -1,3 +1,4 @@
+#!/usr/bin/env Rscript
 library(tidyverse)
 library(openxlsx)
 library(lubridate)
@@ -5,7 +6,7 @@ library(glue)
 library(DBI)
 
 driver <- "{ODBC Driver 17 for SQL Server}"
-server <- "127.0.0.1,1434"
+server <- "host.docker.internal,1434"
 database <- "hedwig"
 uid <- "admin"
 pwd <- Sys.getenv("HEDWIG_PROD_DB_PASS")
@@ -217,12 +218,10 @@ generate_psr_for_report_id <- function(.id) {
   
   .path <- glue("temporary-psr-generation/Output/{.report$Name} {format(.report$Period, '%B %Y')} CDC PSR.xlsx")
   
-  .wb <- loadWorkbook("temporary-psr-generation/psr-template.xlsx")
+  .wb <- loadWorkbook("temporary-psr-generation/psr-template-formatted.xlsx")
   writeData(.wb, sheet = 2, .enrollment_roster, headerStyle = createStyle(textDecoration = "BOLD"))
   writeData(.wb, sheet = 3, .family_income_grouping, headerStyle = createStyle(textDecoration = "BOLD"))
   writeData(.wb, sheet = 4, .spaces, headerStyle = createStyle(textDecoration = "BOLD"))
   writeData(.wb, sheet = 5, .psr, headerStyle = createStyle(textDecoration = "BOLD"))
   saveWorkbook(.wb, .path)
 }
-
-

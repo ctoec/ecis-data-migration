@@ -1,0 +1,13 @@
+version: '3'
+services:
+  r-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./.Renviron:/.Renviron
+      - ./temporary-psr-generation:/temporary-psr-generation
+      - ./run.sh:/run.sh
+    entrypoint:
+      - /bin/bash
+      - run.sh
